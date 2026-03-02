@@ -1,12 +1,27 @@
 {
-  "name": "enterprise-uploader",
+  "name": "chunk-uploader",
   "version": "1.0.0",
-  "description": "Resumable chunk uploader with proxy server",
-  "main": "server.js",
+  "description": "Reusable jQuery plugin for enterprise resumable chunk uploads with pause/resume/cancel, IndexedDB persistence, and Web Worker SHA-256 hashing",
+  "main": "dist/chunk-uploader.js",
+  "style": "dist/chunk-uploader.css",
+  "files": [
+    "dist/chunk-uploader.js",
+    "dist/chunk-uploader.css",
+    "dist/chunk-uploader-worker.js"
+  ],
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js"
   },
+  "keywords": [
+    "upload",
+    "chunked",
+    "resumable",
+    "jquery-plugin",
+    "file-upload",
+    "drag-and-drop"
+  ],
+  "license": "MIT",
   "dependencies": {
     "axios": "^1.7.0",
     "cors": "^2.8.6",

@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ChunkUploader — Plugin Demo</title>
+
+    <!-- jQuery (required dependency) -->
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+
+    <!-- ChunkUploader Plugin -->
+    <link rel="stylesheet" href="dist/chunk-uploader.css">
+    <script src="dist/chunk-uploader.js"></script>
+
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif;
+            background: #f0f2f5;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 20px;
+            padding: 20px;
+        }
+        h1 { font-size: 18px; color: #1e293b; }
+        .demo-note {
+            font-size: 13px;
+            color: #64748b;
+            max-width: 540px;
+            text-align: center;
+            line-height: 1.5;
+        }
+        code {
+            background: #e2e8f0;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+        .event-log {
+            max-width: 540px;
+            width: 100%;
+            background: #1e293b;
+            color: #a5f3fc;
+            border-radius: 12px;
+            padding: 14px 18px;
+            font-family: 'SF Mono', Monaco, Consolas, monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+            line-height: 1.6;
+        }
+        .event-log:empty::after {
+            content: '// Event log — plugin callbacks will appear here';
+            color: #64748b;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>📦 ChunkUploader Plugin Demo</h1>
+
+    <p class="demo-note">
+        Drop a <code>&lt;div&gt;</code> anywhere, include the CSS &amp; JS, call
+        <code>$('#el').chunkUploader({ ... })</code> and you're done.
+    </p>
+
+    <!-- THIS IS ALL YOU NEED — one empty div -->
+    <div id="myUploader"></div>
+
+    <!-- Optional: event log to show callbacks working -->
+    <div class="event-log" id="log"></div>
+
+    <script>
+    $(function () {
+
+        // ---- Initialize the plugin on any div ----
+        var uploader = $('#myUploader').chunkUploader({
+
+            // ── API settings ──────────────────────────────
+            apiBase:    '/api',           // your backend proxy base URL
+            ticketId:   3059,             // ticket to attach files to
+            commentId:  49717,            // comment ID
+            isPublic:   true,
+            placedBy: {
+                EmployeeId: 1,
+                ContactId:  1,
+                Email:      'test@test.com'
+            },
+
+            // ── Upload engine ─────────────────────────────
+            parallel:       1,            // concurrent chunk workers per file
+            maxRetries:     6,
+            retryBaseMs:    1000,
+            maxFileSize:    5 * 1024 * 1024 * 1024,   // 5 GB
+
+            // ── Worker path ───────────────────────────────
+            workerPath: 'dist/chunk-uploader-worker.js',
+
+            // ── Persistence ───────────────────────────────
+            dbName:    'DemoUploaderDB',
+            autoRecover: true,
+
+            // ── UI customisation ──────────────────────────
+            title:              '💬 My Custom Uploader',
+            emptyText:          'No files yet — drop or paste to begin',
+            dropZoneText:       'Drop files here or click to browse',
+            commentPlaceholder: 'Add a note…',
+            showComment:        true,
+            showHeader:         true,
+
+            // ── Feature toggles ───────────────────────────
+            enablePaste:         true,
+            enableServiceWorker: false,
+
+            // ── Event callbacks ───────────────────────────
+            onFileAdded: function (task) {
+                log('📄 File added: ' + task.fileName + ' (' + formatBytes(task.fileSize) + ')');
+            },
+            onUploadStart: function (task) {
+                log('🚀 Upload started: ' + task.fileName);
+            },
+            onUploadProgress: function (task, pct) {
+                // Fires frequently — you could update an external progress bar here
+            },
+            onUploadComplete: function (task) {
+                log('✅ Completed: ' + task.fileName);
+            },
+            onUploadFailed: function (task, err) {
+                log('❌ Failed: ' + task.fileName + ' — ' + err.message);
+            },
+            onAllComplete: function () {
+                log('🎉 All uploads complete!');
+            },
+            onToast: function (message, type) {
+                log('🔔 [' + type + '] ' + message);
+            }
+        });
+
+        // ---- You can also call public API methods ----
+        // uploader.addFiles(someFileList);
+        // uploader.send('optional comment');
+        // uploader.pause(taskId);
+        // uploader.resume(taskId);
+        // uploader.cancel(taskId);
+        // uploader.pauseAll();
+        // uploader.resumeAll();
+        // uploader.cancelAll();
+        // uploader.getTasks();
+        // uploader.destroy();
+
+        // ---- Event log helper ----
+        function log(msg) {
+            var $log = $('#log');
+            var time = new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+            $log.append('[' + time + '] ' + msg + '\n');
+            $log.scrollTop($log[0].scrollHeight);
+        }
+
+        function formatBytes(b) {
+            if (b < 1024)       return b + ' B';
+            if (b < 1048576)    return (b / 1024).toFixed(1) + ' KB';
+            if (b < 1073741824) return (b / 1048576).toFixed(1) + ' MB';
+            return (b / 1073741824).toFixed(2) + ' GB';
+        }
+
+        log('Plugin initialized ✓');
+    });
+    </script>
+
+</body>
+</html>
