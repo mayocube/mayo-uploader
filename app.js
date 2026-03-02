@@ -30,7 +30,7 @@
         DB_NAME:        'UploaderDB',
         DB_VERSION:     2,
         STORE:          'tasks',
-        PARALLEL:       3,                          // concurrent chunk workers per file
+        PARALLEL:       1,                          // concurrent chunk workers per file
         MAX_RETRIES:    6,
         RETRY_BASE_MS:  1000,
         THUMB_MAX_PX:   120,
@@ -655,7 +655,7 @@
 
     function setStatus(task, status) {
         task.status = status;
-        if (status !== 'completed' && status !== 'cancelled') dbPut(task);
+        if (status !== 'completed' && status !== 'cancelled' && task.messageId) dbPut(task);
         updateCard(task);
         updateSummary();
     }
@@ -694,7 +694,6 @@
 
         tasks.set(id, task);
         fileRefs.set(id, file);
-        dbPut(task);
         renderStagedCard(task);
         updateSummary();
 
@@ -895,18 +894,16 @@
                 if (!messageGroups[task.messageId]) messageGroups[task.messageId] = [];
                 messageGroups[task.messageId].push(task);
             } else {
-                ungrouped.push(task);
+                // Unsent staged files — discard on reload
+                dbDelete(task.id);
+                tasks.delete(task.id);
+                recovered--;
             }
         });
 
         // Re-render sent messages as chat bubbles
         Object.keys(messageGroups).sort().forEach(function (msgId) {
             renderMessageBubble(msgId, null, messageGroups[msgId]);
-        });
-
-        // Re-render unsent files back into the staging area
-        ungrouped.forEach(function (task) {
-            renderStagedCard(task);
         });
 
         if (recovered > 0) {

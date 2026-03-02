@@ -100,27 +100,22 @@ app.post('/api/tickets/:ticketId/upload_attachments', async (req, res) => {
 /**
  * PUT /api/tickets/:ticketId/upload_attachments/:tempId/parts/:partNum
  * → Upload a single binary chunk.
- *   The body is raw binary (application/octet-stream), streamed directly.
+ *   The body is raw binary (application/octet-stream).
  */
-app.put('/api/tickets/:ticketId/upload_attachments/:tempId/parts/:partNum', async (req, res) => {
+app.put('/api/tickets/:ticketId/upload_attachments/:tempId/parts/:partNum', rawParser, async (req, res) => {
     try {
         const { ticketId, tempId, partNum } = req.params;
         const url = `${API_BASE}/tickets/${ticketId}/upload_attachments/${tempId}/parts/${partNum}`;
         const headers = await authHeaders({
             'Content-Type': req.headers['content-type'] || 'application/octet-stream',
-            // Forward content-length so upstream knows the chunk size
             ...(req.headers['content-length'] && { 'Content-Length': req.headers['content-length'] }),
-            // Forward content-range so upstream knows the start byte of each chunk
             ...(req.headers['content-range'] && { 'Content-Range': req.headers['content-range'] })
         });
-        let config = {
-            method: 'put',
-            maxBodyLength: Infinity,
-            url: url,
-            headers: headers,
-            data: req                     // stream request body directly — no buffering
-        };
-        const upstream = await axios.request(config);
+
+        const upstream = await axios.put(url, req.body, {
+            headers,
+            maxBodyLength: Infinity
+        });
         res.status(upstream.status).json(upstream.data);
 
     } catch (err) {
