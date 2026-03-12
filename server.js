@@ -1,10 +1,11 @@
 /* ============================================================================
-   server.js — Proxy server for Enterprise Resumable Uploader
+   server.js — Proxy server for ChunkUploader Plugin
    -----------------------------------------------------------
    • Token fetched & cached server-side (never exposed to browser)
    • Auto-refreshes token 60s before expiry
    • Proxies all upload API calls with Bearer auth injected
-   • Serves static files (index.html, app.js, etc.) from same origin
+   • NEW: /api/comments endpoint for comment-first flow
+   • Serves static files (demo.html, dist/*, etc.) from same origin
    • Streams binary chunk bodies without buffering into memory
 ============================================================================ */
 
@@ -67,41 +68,128 @@ async function authHeaders(extra) {
    Middleware
 --------------------------------------------------------------- */
 
-// Serve static files (index.html, app.js, hashWorker.js, sw.js)
+// Serve static files (demo.html, dist/*, index.html, etc.)
 app.use(express.static(path.join(__dirname)));
 
-// Parse JSON for init / complete requests (limit 1 MB)
+// Parse JSON for init / complete / comment requests (limit 1 MB)
 app.use('/api', express.json({ limit: '1mb' }));
 
 // Parse raw binary bodies for chunk uploads (up to 200 MB per chunk)
 const rawParser = express.raw({ type: '*/*', limit: '200mb' });
 
 /* ---------------------------------------------------------------
-   Proxy routes
+   NEW: Comment-first endpoint
 --------------------------------------------------------------- */
 
 /**
- * POST /api/tickets/:ticketId/upload_attachments
- * → Initialize a chunked upload.  Body is JSON.
+ * POST /api/comments
+ * → Create a comment on a ticket. Returns { ticketId, commentId }.
+ *   The plugin calls this FIRST, before uploading any files.
+ *
+ *   Body: { text: "user's comment", ticketId: 123 }
+ *   Adjust the upstream URL/body to match your real API.
  */
-app.post('/api/tickets/:ticketId/upload_attachments', async (req, res) => {
+app.post('/api/comments', async (req, res) => {
     try {
-        const url = `${API_BASE}/tickets/${req.params.ticketId}/upload_attachments`;
+        const { text, ticketId } = req.body;
+        const tid = ticketId || 3059;   // default ticket for demo
+
+        const url = `${API_BASE}/tickets/${tid}/comments`;
         const headers = await authHeaders({ 'Content-Type': 'application/json' });
 
-        const upstream = await axios.post(url, req.body, { headers });
+        const upstream = await axios.post(url, { Text: text || '' }, { headers });
+
+        // Map upstream response to { ticketId, commentId }
+        const commentId = upstream.data.Id || upstream.data.id || upstream.data.CommentId;
+        res.json({
+            ticketId:  tid,
+            commentId: commentId
+        });
+
+    } catch (err) {
+        handleError(res, err, 'create comment');
+    }
+});
+
+/* ---------------------------------------------------------------
+   Upload proxy routes (new query-param style used by the plugin)
+--------------------------------------------------------------- */
+
+/**
+ * POST /api/tickets/AttachmentUpload
+ * → Initialize or finalize a chunked upload.
+ *   Query params: TicketId, CommentId, OriginalFileName, FileBytesSize, OriginalSha256, ActionName
+ */
+app.post('/api/tickets/AttachmentUpload', async (req, res) => {
+    try {
+        const qs  = req.query;
+        const url = `${API_BASE}/tickets/AttachmentUpload`;
+        const headers = await authHeaders({ 'Content-Type': 'application/json' });
+
+        const upstream = await axios.post(url, req.body || {}, { headers, params: qs });
         res.status(upstream.status).json(upstream.data);
 
     } catch (err) {
-        handleError(res, err, 'init upload');
+        handleError(res, err, 'attachment upload (POST)');
     }
 });
 
 /**
- * PUT /api/tickets/:ticketId/upload_attachments/:tempId/parts/:partNum
+ * PUT /api/tickets/AttachmentUpload
  * → Upload a single binary chunk.
- *   The body is raw binary (application/octet-stream).
+ *   Query params: TicketId, TempAttachmentId, PartNumber, ActionName
  */
+app.put('/api/tickets/AttachmentUpload', rawParser, async (req, res) => {
+    try {
+        const qs  = req.query;
+        const url = `${API_BASE}/tickets/AttachmentUpload`;
+
+        const headers = await authHeaders({
+            'Content-Type': req.headers['content-type'] || 'application/octet-stream',
+            ...(req.headers['content-length'] && { 'Content-Length': req.headers['content-length'] }),
+            ...(req.headers['content-range']  && { 'Content-Range':  req.headers['content-range'] })
+        });
+
+        const upstream = await axios.put(url, req.body, { headers, params: qs, maxBodyLength: Infinity });
+        res.status(upstream.status).json(upstream.data);
+
+    } catch (err) {
+        handleError(res, err, 'attachment upload (PUT chunk)');
+    }
+});
+
+/**
+ * DELETE /api/tickets/AttachmentUpload
+ * → Cancel / delete an in-progress upload.
+ *   Query params: TicketId, TempAttachmentId, ActionName
+ */
+app.delete('/api/tickets/AttachmentUpload', async (req, res) => {
+    try {
+        const qs  = req.query;
+        const url = `${API_BASE}/tickets/AttachmentUpload`;
+        const headers = await authHeaders();
+
+        const upstream = await axios.delete(url, { headers, params: qs });
+        res.status(upstream.status).json(upstream.data);
+
+    } catch (err) {
+        handleError(res, err, 'cancel upload');
+    }
+});
+
+/* ---------------------------------------------------------------
+   Legacy proxy routes (backward compat with old app.js)
+--------------------------------------------------------------- */
+
+app.post('/api/tickets/:ticketId/upload_attachments', async (req, res) => {
+    try {
+        const url = `${API_BASE}/tickets/${req.params.ticketId}/upload_attachments`;
+        const headers = await authHeaders({ 'Content-Type': 'application/json' });
+        const upstream = await axios.post(url, req.body, { headers });
+        res.status(upstream.status).json(upstream.data);
+    } catch (err) { handleError(res, err, 'init upload (legacy)'); }
+});
+
 app.put('/api/tickets/:ticketId/upload_attachments/:tempId/parts/:partNum', rawParser, async (req, res) => {
     try {
         const { ticketId, tempId, partNum } = req.params;
@@ -109,54 +197,31 @@ app.put('/api/tickets/:ticketId/upload_attachments/:tempId/parts/:partNum', rawP
         const headers = await authHeaders({
             'Content-Type': req.headers['content-type'] || 'application/octet-stream',
             ...(req.headers['content-length'] && { 'Content-Length': req.headers['content-length'] }),
-            ...(req.headers['content-range'] && { 'Content-Range': req.headers['content-range'] })
+            ...(req.headers['content-range']  && { 'Content-Range':  req.headers['content-range'] })
         });
-
-        const upstream = await axios.put(url, req.body, {
-            headers,
-            maxBodyLength: Infinity
-        });
+        const upstream = await axios.put(url, req.body, { headers, maxBodyLength: Infinity });
         res.status(upstream.status).json(upstream.data);
-
-    } catch (err) {
-        handleError(res, err, 'upload chunk');
-    }
+    } catch (err) { handleError(res, err, 'upload chunk (legacy)'); }
 });
 
-/**
- * POST /api/tickets/:ticketId/upload_attachments/:tempId/complete
- * → Finalize the upload.
- */
 app.post('/api/tickets/:ticketId/upload_attachments/:tempId/complete', async (req, res) => {
     try {
         const { ticketId, tempId } = req.params;
         const url = `${API_BASE}/tickets/${ticketId}/upload_attachments/${tempId}/complete`;
         const headers = await authHeaders({ 'Content-Type': 'application/json' });
-
         const upstream = await axios.post(url, req.body || {}, { headers });
         res.status(upstream.status).json(upstream.data);
-
-    } catch (err) {
-        handleError(res, err, 'complete upload');
-    }
+    } catch (err) { handleError(res, err, 'complete upload (legacy)'); }
 });
 
-/**
- * DELETE /api/tickets/:ticketId/upload_attachments/:tempId
- * → Cancel / delete an in-progress upload.
- */
 app.delete('/api/tickets/:ticketId/upload_attachments/:tempId', async (req, res) => {
     try {
         const { ticketId, tempId } = req.params;
         const url = `${API_BASE}/tickets/${ticketId}/upload_attachments/${tempId}`;
         const headers = await authHeaders();
-
         const upstream = await axios.delete(url, { headers });
         res.status(upstream.status).json(upstream.data);
-
-    } catch (err) {
-        handleError(res, err, 'cancel upload');
-    }
+    } catch (err) { handleError(res, err, 'cancel upload (legacy)'); }
 });
 
 /* ---------------------------------------------------------------
@@ -168,7 +233,6 @@ function handleError(res, err, context) {
 
     console.error(`[Proxy] ${context} failed (${status}):`, message);
 
-    // If upstream returned 401, clear cached token so next request refreshes
     if (status === 401) {
         cachedToken = null;
         tokenExpiry = 0;
@@ -187,5 +251,6 @@ function handleError(res, err, context) {
 app.listen(PORT, () => {
     console.log(`\n🚀 Upload proxy running → http://localhost:${PORT}\n`);
     console.log(`   Static files served from: ${__dirname}`);
-    console.log(`   Upstream API:             ${API_BASE}\n`);
+    console.log(`   Upstream API:             ${API_BASE}`);
+    console.log(`   Demo page:                http://localhost:${PORT}/demo.html\n`);
 });

@@ -24,7 +24,7 @@
        Configuration
     --------------------------------------------------------------- */
     const CFG = {
-        API_BASE:       '/api',              // same-origin proxy — no credentials on client
+        API_BASE:       '/tickets',              // same-origin proxy — no credentials on client
         TICKET_ID:      3059,
         COMMENT_ID:     49717,
         DB_NAME:        'UploaderDB',
@@ -469,30 +469,17 @@
     /** Step 1: Initialize — get tempId, chunkSize, totalParts from API */
     async function initUpload(task) {
         var res = await apiFetch(
-            CFG.API_BASE + '/tickets/' + CFG.TICKET_ID + '/upload_attachments',
+            CFG.API_BASE + '/AttachmentUpload?TicketId=' + CFG.TICKET_ID + '&CommentId=' + CFG.COMMENT_ID + '&OriginalFileName=' + task.fileName + '&FileBytesSize=' + task.fileSize + '&OriginalSha256=' + task.sha256 + '&ActionName=Initiate',
             {
                 method:  'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    CommentId:        CFG.COMMENT_ID,
-                    IsPublic:         true,
-                    OriginalFileName: task.fileName,
-                    FileSizeBytes:    task.fileSize,
-                    OriginalSha256:   task.sha256,
-                    PlacedBy:         { 
-                        EmployeeId: 1,
-                        ContactId: 1,
-                        Email: 'test@test.com' 
-                    }
-                })
             }
         );
         
         var data         = await res.json();
         console.log(data);
-        task.tempId      = data.id;
-        task.chunkSize   = data.chunkSizeBytes;
-        task.totalParts  = data.totalParts;
+        task.tempId = data.Id;
+        task.chunkSize = data.ChunkSizeBytes;
+        task.totalParts = data.TotalParts;
         task.completedParts = task.completedParts || [];
         dbPut(task);
     }
@@ -539,8 +526,7 @@
                     inFlightProgress[workerId] = 0;   // reset on retry
 
                     return xhrUpload(
-                        CFG.API_BASE + '/tickets/' + CFG.TICKET_ID +
-                        '/upload_attachments/' + task.tempId + '/parts/' + partNum,
+                        CFG.API_BASE + '/AttachmentUpload?TicketId=' + CFG.TICKET_ID + '&TempAttachmentId=' + task.tempId + '&PartNumber=' + partNum + '&ActionName=UploadChunk',
                         blob,
                         {
                             'Content-Type':  'application/octet-stream',
@@ -597,9 +583,10 @@
     /** Step 3: Finalize on server */
     async function completeUpload(task) {
         await apiFetch(
-            CFG.API_BASE + '/tickets/' + CFG.TICKET_ID +
-            '/upload_attachments/' + task.tempId + '/complete',
-            { method: 'POST' }
+            CFG.API_BASE + '/AttachmentUpload?TicketId=' + CFG.TICKET_ID + '&TempAttachmentId=' + task.tempId + '&ActionName=Finalize',
+            { 
+                method: 'POST',
+            }
         );
     }
 
@@ -749,9 +736,10 @@
         if (task.tempId) {
             try {
                 await apiFetch(
-                    CFG.API_BASE + '/tickets/' + CFG.TICKET_ID +
-                    '/upload_attachments/' + task.tempId,
-                    { method: 'DELETE' }
+                    CFG.API_BASE + '/AttachmentUpload?TicketId=' + CFG.TICKET_ID + '&TempAttachmentId=' + task.tempId + '&ActionName=Delete',
+                    { 
+                        method: 'DELETE',
+                    }
                 );
             } catch (_) { /* best-effort */ }
         }

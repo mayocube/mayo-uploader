@@ -1,8 +1,7 @@
 /* ================================================================
-   SHA-256 Web Worker — ChunkUploader Plugin
-   Supports concurrent file hashing via message IDs.
-   Each request carries a unique `id`; the response echoes it back
-   so the main thread can match promises correctly.
+   SHA-256 Web Worker — supports concurrent file hashing via message IDs.
+   Each request carries a unique `id`; the response echoes it back so
+   the main thread can match promises correctly.
 ================================================================ */
 
 self.onmessage = async function (e) {
